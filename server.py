@@ -102,8 +102,9 @@ def get_dept_pos_filter(token: AccessToken | None) -> models.Filter | None:
             ]
         )
     
-    dept_id = str(token.claims.get("departmentId", 0))
-    pos_id = str(token.claims.get("positionId", 0))
+    claims_lower = {k.lower(): v for k, v in token.claims.items()}
+    dept_id = str(claims_lower.get("departmentid", 0))
+    pos_id = str(claims_lower.get("positionid", 0))
 
     scopes = token.scopes if token else []
     roles = token.claims.get("realm_access", {}).get("roles", [])
@@ -205,8 +206,9 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
         scopes = []
         roles = []
     else:
-        dept_id = str(token.claims.get("departmentId", 0))
-        pos_id = str(token.claims.get("positionId", 0))
+        claims_lower = {k.lower(): v for k, v in token.claims.items()}
+        dept_id = str(claims_lower.get("departmentid", 0))
+        pos_id = str(claims_lower.get("positionid", 0))
         scopes = token.scopes
         roles = token.claims.get("realm_access", {}).get("roles", [])
         
