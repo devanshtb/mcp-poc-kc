@@ -107,7 +107,7 @@ def chunk_text(text: str) -> list[str]:
 
 # ── Ingest ────────────────────────────────────────────────────────────────────
 
-def cmd_ingest(file_path_str: str, role: str = "public"):
+def cmd_ingest(file_path_str: str, dept: str = "0", pos: str = "0"):
     file_path = Path(file_path_str)
     if not file_path.exists():
         print(f"Error: file not found: {file_path}")
@@ -155,7 +155,7 @@ def cmd_ingest(file_path_str: str, role: str = "public"):
                 "chunk_index": i,
                 "file_type":   file_path.suffix.lstrip("."),
                 "content":     chunks[i],
-                "role":        role,
+                "department_position_pairs": [f"{dept}-{pos}"],
             },
         )
         for i in range(len(chunks))
@@ -237,14 +237,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Knowledge base admin tool")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--file",   type=str, help="Path to file to ingest")
-    parser.add_argument("--role",  type=str, default="public", help="Role required to access this document (e.g. admin, hr, public)")
+    parser.add_argument("--dept",  type=str, default="0", help="Department ID required to access this document")
+    parser.add_argument("--pos",   type=str, default="0", help="Position ID required to access this document")
     group.add_argument("--list",   action="store_true", help="List all documents")
     group.add_argument("--delete", type=str, metavar="DOCUMENT_ID", help="Delete by document ID")
 
     args = parser.parse_args()
 
     if args.file:
-        cmd_ingest(args.file, args.role)
+        cmd_ingest(args.file, args.dept, args.pos)
     elif args.list:
         cmd_list()
     elif args.delete:

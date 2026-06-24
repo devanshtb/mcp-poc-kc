@@ -17,7 +17,7 @@ from fastembed import TextEmbedding, SparseTextEmbedding
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import CurrentAccessToken
 from fastmcp.server.auth import AccessToken
-from fastmcp.server.auth.providers.auth0 import Auth0Provider
+from fastmcp.server.auth.providers.keycloak import KeycloakAuthProvider
 from qdrant_client import AsyncQdrantClient, models
 
 load_dotenv()
@@ -72,48 +72,56 @@ async def lifespan(server):
 # ── FastMCP server setup ──────────────────────────────────────────────────────
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
-AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN")
-AUTH0_CLIENT_ID = os.environ.get("AUTH0_CLIENT_ID")
-AUTH0_CLIENT_SECRET = os.environ.get("AUTH0_CLIENT_SECRET")
-AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE")
+KEYCLOAK_REALM_URL = os.environ.get("KEYCLOAK_REALM_URL")
+KEYCLOAK_CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID")
 
-if AUTH0_DOMAIN and AUTH0_CLIENT_ID and AUTH0_CLIENT_SECRET and AUTH0_AUDIENCE:
-    auth = Auth0Provider(
-        config_url=f"https://{AUTH0_DOMAIN}/.well-known/openid-configuration",
-        client_id=AUTH0_CLIENT_ID,
-        client_secret=AUTH0_CLIENT_SECRET,
-        audience=AUTH0_AUDIENCE,
+if KEYCLOAK_REALM_URL and KEYCLOAK_CLIENT_ID:
+    auth = KeycloakAuthProvider(
+        realm_url=KEYCLOAK_REALM_URL,
         base_url=BASE_URL,
-        resource_base_url=AUTH0_AUDIENCE
+        audience=KEYCLOAK_CLIENT_ID
     )
-    print("Auth0 provider configured.")
+    print("Keycloak provider configured.")
 else:
-    print("Warning: Auth0 environment variables missing. Running without authentication enforcement.")
+    print("Warning: Keycloak environment variables missing. Running without authentication enforcement.")
     auth = None
 
 mcp = FastMCP("Knowledge Base", lifespan=lifespan, auth=auth)
 
 # ── RBAC Utility ─────────────────────────────────────────────────────────────
 
-def get_role_filter(token: AccessToken | None) -> models.Filter | None:
-    """Return a Qdrant Filter based on user's role/scopes."""
-    scopes = token.scopes if token else []
+def get_dept_pos_filter(token: AccessToken | None) -> models.Filter | None:
+    """Return a Qdrant Filter based on user's department and position."""
+    if not token or not token.claims:
+        return models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="department_position_pairs",
+                    match=models.MatchAny(any=["0-0"]),
+                )
+            ]
+        )
     
-    # Auth0 adds permissions to a separate `permissions` claim when using RBAC.
-    # We should merge these into our scopes list to enforce access correctly.
-    if token and token.claims and "permissions" in token.claims:
-        scopes.extend(token.claims["permissions"])
-        
-    if "admin" in scopes or "Admin" in scopes:
+    dept_id = str(token.claims.get("departmentId", 0))
+    pos_id = str(token.claims.get("positionId", 0))
+
+    scopes = token.scopes if token else []
+    roles = token.claims.get("realm_access", {}).get("roles", [])
+    if "admin" in scopes or "Admin" in scopes or "admin" in roles or "Admin" in roles:
         return None  # Admin can access everything
     
-    # User can access documents with role 'public' or any of their specific scopes
-    allowed_roles = scopes + ["public"]
+    allowed_pairs = [
+        f"{dept_id}-{pos_id}",  # Exact match
+        f"0-{pos_id}",          # Wildcard department
+        f"{dept_id}-0",         # Wildcard position
+        "0-0"                   # Public documents
+    ]
+    
     return models.Filter(
         must=[
             models.FieldCondition(
-                key="role",
-                match=models.MatchAny(any=allowed_roles),
+                key="department_position_pairs",
+                match=models.MatchAny(any=allowed_pairs),
             )
         ]
     )
@@ -157,7 +165,7 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
         ],
         # Qdrant's built-in RRF fusion across both prefetch results
         query=models.FusionQuery(fusion=models.Fusion.RRF),
-        query_filter=get_role_filter(token),
+        query_filter=get_dept_pos_filter(token),
         limit=top_k,
         with_payload=True,
     )
@@ -189,13 +197,31 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     payload = results[0].payload or {}
     
     # Enforce RBAC
-    doc_role = payload.get("role", "public")
-    scopes = token.scopes if token else []
-    if token and token.claims and "permissions" in token.claims:
-        scopes.extend(token.claims["permissions"])
+    doc_pairs = payload.get("department_position_pairs", ["0-0"])
+    
+    if not token or not token.claims:
+        dept_id = "0"
+        pos_id = "0"
+        scopes = []
+        roles = []
+    else:
+        dept_id = str(token.claims.get("departmentId", 0))
+        pos_id = str(token.claims.get("positionId", 0))
+        scopes = token.scopes
+        roles = token.claims.get("realm_access", {}).get("roles", [])
         
-    if "admin" not in scopes and "Admin" not in scopes and doc_role not in scopes and doc_role != "public":
-        return {"error": f"Unauthorized. Point requires role '{doc_role}'."}
+    allowed_pairs = [
+        f"{dept_id}-{pos_id}",
+        f"0-{pos_id}",
+        f"{dept_id}-0",
+        "0-0"
+    ]
+    
+    is_admin = "admin" in scopes or "Admin" in scopes or "admin" in roles or "Admin" in roles
+    has_access = any(pair in doc_pairs for pair in allowed_pairs)
+    
+    if not is_admin and not has_access:
+        return {"error": f"Unauthorized. Point requires one of pairs: {doc_pairs}."}
 
     return {
         "id":           id,
@@ -224,13 +250,15 @@ logger.addHandler(handler)
 async def list_documents(token: AccessToken = CurrentAccessToken()) -> dict:
     """
     List all documents in the Qdrant knowledge base.
-    Only returns documents the user is authorized to see based on their Auth0 scopes.
+    Only returns documents the user is authorized to see based on their Keycloak claims.
     """
     if token:
         try:
             import urllib.request
             import json
-            req = urllib.request.Request("https://" + os.environ["AUTH0_DOMAIN"] + "/userinfo")
+            KEYCLOAK_REALM_URL = os.environ.get("KEYCLOAK_REALM_URL", "")
+            userinfo_url = f"{KEYCLOAK_REALM_URL.rstrip('/')}/protocol/openid-connect/userinfo"
+            req = urllib.request.Request(userinfo_url)
             req.add_header("Authorization", f"Bearer {token.token}")
             with urllib.request.urlopen(req) as response:
                 userinfo = json.loads(response.read())
@@ -249,7 +277,7 @@ async def list_documents(token: AccessToken = CurrentAccessToken()) -> dict:
         except Exception as e:
             logger.error(f"Failed to fetch userinfo: {e}")
             
-    f = get_role_filter(token)
+    f = get_dept_pos_filter(token)
     
     seen: dict[str, dict] = {}
     offset = None
@@ -295,7 +323,7 @@ async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> di
     all_chunks = []
     offset = None
     
-    role_filter = get_role_filter(token)
+    role_filter = get_dept_pos_filter(token)
     must_conditions = [
         models.FieldCondition(
             key="document_id",

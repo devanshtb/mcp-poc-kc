@@ -10,7 +10,7 @@ sparse keyword (BM-25) — fused with Qdrant's built-in RRF.
 | MCP framework | FastMCP | Free |
 | Vector DB | Qdrant Cloud | Free (1 GB) |
 | Embeddings | FastEmbed (local, ONNX) | Free |
-| Hosting | Railway | Free ($5 credit/mo) |
+| Hosting | Render | Free tier |
 | ChatGPT | Deep Research connector | Free (Pro plan) |
 
 ---
@@ -36,7 +36,7 @@ cp .env.example .env
 
 ### 4. Upload documents
 ```bash
-python ingest.py --file report.pdf
+python ingest.py --file report.pdf --dept 1 --pos 2
 python ingest.py --file notes.md
 python ingest.py --list
 python ingest.py --delete <document_id>
@@ -49,14 +49,14 @@ python server.py
 # → http://localhost:8000/mcp
 ```
 
-### 6. Deploy to Railway
+### 6. Deploy to Render
 1. Push to GitHub (`.env` is gitignored)
-2. Railway → New Project → Deploy from GitHub
-3. Add env vars: `QDRANT_URL`, `QDRANT_API_KEY`, `MCP_API_KEY`
+2. Render → New Web Service → Connect GitHub repo
+3. Add env vars: `QDRANT_URL`, `QDRANT_API_KEY`, `KEYCLOAK_REALM_URL`, `KEYCLOAK_CLIENT_ID`
 4. Copy your public URL
 
 ### 7. Connect to ChatGPT
-- Settings → Connectors → Add → paste Railway URL + `/mcp/`
+- Settings → Connectors → Add → paste Render URL + `/mcp/`
 - Auth: Bearer token → your `MCP_API_KEY`
 - Use via `+` → Deep Research → select your connector
 
