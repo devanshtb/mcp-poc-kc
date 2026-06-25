@@ -145,8 +145,12 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
     print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render)")
     print("Action: ChatGPT sends a POST request to your Render MCP Server to execute a tool (like search).")
     print("Data Passed:")
-    raw_token = token.token if token else "None"
-    print(f"Headers: Authorization: Bearer {raw_token}")
+    decoded_claims = token.claims if token and token.claims else "None"
+    print(f"Headers: Authorization: Bearer [HIDDEN]")
+    if decoded_claims != "None":
+        print(f"Decoded Token Claims: {json.dumps(decoded_claims)}")
+    else:
+        print("Decoded Token Claims: None")
     print(f"Body: The search query (e.g., {json.dumps({'query': query, 'top_k': top_k})}).")
     print("=" * 60 + "\n")
     sys.stdout.flush()
@@ -209,8 +213,12 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render) [Fetch]")
     print("Action: ChatGPT sends a POST request to your Render MCP Server to execute a tool (like fetch).")
     print("Data Passed:")
-    raw_token = token.token if token else "None"
-    print(f"Headers: Authorization: Bearer {raw_token}")
+    decoded_claims = token.claims if token and token.claims else "None"
+    print(f"Headers: Authorization: Bearer [HIDDEN]")
+    if decoded_claims != "None":
+        print(f"Decoded Token Claims: {json.dumps(decoded_claims)}")
+    else:
+        print("Decoded Token Claims: None")
     print(f"Body: The fetch query (e.g., {json.dumps({'id': id})}).")
     print("=" * 60 + "\n")
     sys.stdout.flush()
@@ -372,8 +380,12 @@ async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> di
     print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render) [Get Document]")
     print("Action: ChatGPT sends a POST request to your Render MCP Server to execute a tool (get_document).")
     print("Data Passed:")
-    raw_token = token.token if token else "None"
-    print(f"Headers: Authorization: Bearer {raw_token}")
+    decoded_claims = token.claims if token and token.claims else "None"
+    print(f"Headers: Authorization: Bearer [HIDDEN]")
+    if decoded_claims != "None":
+        print(f"Decoded Token Claims: {json.dumps(decoded_claims)}")
+    else:
+        print("Decoded Token Claims: None")
     print(f"Body: The get_document query (e.g., {json.dumps({'id': id})}).")
     print("=" * 60 + "\n")
     sys.stdout.flush()
