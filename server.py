@@ -152,6 +152,13 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
     else:
         print("Decoded Token Claims: None")
     print(f"Body: The search query (e.g., {json.dumps({'query': query, 'top_k': top_k})}).")
+    
+    combined_log = {
+        "decoded_token": decoded_claims if decoded_claims != "None" else None,
+        "query": query,
+        "top_k": top_k
+    }
+    print(f"\nCombined Request Data:\n{json.dumps(combined_log, indent=2)}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
@@ -229,6 +236,12 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     else:
         print("Decoded Token Claims: None")
     print(f"Body: The fetch query (e.g., {json.dumps({'id': id})}).")
+    
+    combined_log = {
+        "decoded_token": decoded_claims if decoded_claims != "None" else None,
+        "id": id
+    }
+    print(f"\nCombined Request Data:\n{json.dumps(combined_log, indent=2)}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
@@ -412,6 +425,12 @@ async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> di
     else:
         print("Decoded Token Claims: None")
     print(f"Body: The get_document query (e.g., {json.dumps({'id': id})}).")
+    
+    combined_log = {
+        "decoded_token": decoded_claims if decoded_claims != "None" else None,
+        "id": id
+    }
+    print(f"\nCombined Request Data:\n{json.dumps(combined_log, indent=2)}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
