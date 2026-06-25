@@ -140,6 +140,17 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
         query:  Natural language search query.
         top_k:  Number of results (default 5, max 20).
     """
+    import sys, json
+    print("\n" + "=" * 60)
+    print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render)")
+    print("Action: ChatGPT sends a POST request to your Render MCP Server to execute a tool (like search).")
+    print("Data Passed:")
+    raw_token = token.token if token else "None"
+    print(f"Headers: Authorization: Bearer {raw_token}")
+    print(f"Body: The search query (e.g., {json.dumps({'query': query, 'top_k': top_k})}).")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
     top_k = min(top_k, 20)
 
     loop = asyncio.get_event_loop()
@@ -172,6 +183,14 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
     )
 
     ids = [str(point.id) for point in results.points]
+    
+    print("\n" + "=" * 60)
+    print("Step 5/6: Tool Response (MCP Server ↔ ChatGPT) [Search]")
+    print("Action: Returning search results (matching IDs) from Qdrant to ChatGPT.")
+    print(f"Data Returned: {json.dumps({'ids': ids})}")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
     return {"ids": ids}
 
 # ── Tool 2: fetch ─────────────────────────────────────────────────────────────
@@ -185,6 +204,17 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     Args:
         id: Point ID (UUID string from `search`).
     """
+    import sys, json
+    print("\n" + "=" * 60)
+    print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render) [Fetch]")
+    print("Action: ChatGPT sends a POST request to your Render MCP Server to execute a tool (like fetch).")
+    print("Data Passed:")
+    raw_token = token.token if token else "None"
+    print(f"Headers: Authorization: Bearer {raw_token}")
+    print(f"Body: The fetch query (e.g., {json.dumps({'id': id})}).")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
     results = await qdrant.retrieve(
         collection_name=COLLECTION,
         ids=[id],
@@ -225,7 +255,7 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     if not is_admin and not has_access:
         return {"error": f"Unauthorized. Point requires one of pairs: {doc_pairs}."}
 
-    return {
+    response_data = {
         "id":           id,
         "content":      payload.get("content", ""),
         "document_id":  payload.get("document_id", ""),
@@ -237,6 +267,21 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
             if k not in ("document", "document_id", "title", "source", "chunk_index")
         },
     }
+    
+    import sys, json
+    print("\n" + "=" * 60)
+    print("Step 5/6: Tool Response (MCP Server ↔ ChatGPT) [Fetch]")
+    print("Action: Returning fetched document content back to ChatGPT.")
+    # Truncate content in logs so it doesn't spam the console too much
+    log_data = response_data.copy()
+    if len(log_data["content"]) > 100:
+        log_data["content"] = log_data["content"][:100] + "... [TRUNCATED FOR LOGS]"
+        
+    print(f"Data Returned: {json.dumps(log_data)}")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+    
+    return response_data
 
 import logging
 import sys
