@@ -367,6 +367,17 @@ async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> di
     Args:
         id: The document_id (UUID from `list_documents`).
     """
+    import sys, json
+    print("\n" + "=" * 60)
+    print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render) [Get Document]")
+    print("Action: ChatGPT sends a POST request to your Render MCP Server to execute a tool (get_document).")
+    print("Data Passed:")
+    raw_token = token.token if token else "None"
+    print(f"Headers: Authorization: Bearer {raw_token}")
+    print(f"Body: The get_document query (e.g., {json.dumps({'id': id})}).")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
     all_chunks = []
     offset = None
     
@@ -401,13 +412,26 @@ async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> di
     first_payload = all_chunks[0].payload or {}
     full_text = "\n\n".join((p.payload or {}).get("content", "") for p in all_chunks)
 
-    return {
+    response_data = {
         "document_id": id,
         "title":       first_payload.get("title", ""),
         "source":      first_payload.get("source", ""),
         "content":     full_text,
         "chunk_count": len(all_chunks),
     }
+    
+    import sys, json
+    print("\n" + "=" * 60)
+    print("Step 5/6: Tool Response (MCP Server ↔ ChatGPT) [Get Document]")
+    print("Action: Returning full assembled document content back to ChatGPT.")
+    log_data = response_data.copy()
+    if len(log_data["content"]) > 100:
+        log_data["content"] = log_data["content"][:100] + "... [TRUNCATED FOR LOGS]"
+    print(f"Data Returned: {json.dumps(log_data)}")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
+    return response_data
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
