@@ -160,6 +160,15 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
     loop = asyncio.get_event_loop()
     dense_vec, sparse_obj = await loop.run_in_executor(None, _embed, query)
 
+    import sys, json
+    print("\n" + "=" * 60)
+    print("Step 5: Database Query (MCP Server ↔ Qdrant Cloud) [Search]")
+    print("Action: The MCP server translates ChatGPT's text query into vector embeddings and queries Qdrant.")
+    filter_obj = get_dept_pos_filter(token)
+    print(f"Data Passed (RBAC Filter): {filter_obj.must if filter_obj else 'None'}")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
     results = await qdrant.query_points(
         collection_name=COLLECTION,
         prefetch=[
@@ -220,6 +229,14 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     else:
         print("Decoded Token Claims: None")
     print(f"Body: The fetch query (e.g., {json.dumps({'id': id})}).")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
+    import sys
+    print("\n" + "=" * 60)
+    print("Step 5: Database Query (MCP Server ↔ Qdrant Cloud) [Fetch]")
+    print("Action: The MCP server queries Qdrant to retrieve a specific chunk ID.")
+    print(f"Data Passed (Requested ID): {id}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
@@ -337,6 +354,14 @@ async def list_documents(token: AccessToken = CurrentAccessToken()) -> dict:
     seen: dict[str, dict] = {}
     offset = None
 
+    import sys
+    print("\n" + "=" * 60)
+    print("Step 5: Database Query (MCP Server ↔ Qdrant Cloud) [List Documents]")
+    print("Action: The MCP server scrolls through Qdrant to list documents.")
+    print(f"Data Passed (RBAC Filter): {f.must if f else 'None'}")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
+
     while True:
         result, offset = await qdrant.scroll(
             collection_name=COLLECTION,
@@ -402,6 +427,14 @@ async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> di
     ]
     if role_filter and role_filter.must:
         must_conditions.extend(role_filter.must)
+
+    import sys
+    print("\n" + "=" * 60)
+    print("Step 5: Database Query (MCP Server ↔ Qdrant Cloud) [Get Document]")
+    print("Action: The MCP server scrolls through Qdrant to fetch all chunks of a document.")
+    print(f"Data Passed (Query Filter): {must_conditions}")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
 
     while True:
         result, offset = await qdrant.scroll(
