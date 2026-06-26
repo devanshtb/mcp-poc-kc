@@ -90,17 +90,45 @@ mcp = FastMCP("Knowledge Base", lifespan=lifespan, auth=auth)
 
 # ── RBAC Utility ─────────────────────────────────────────────────────────────
 
-def get_dept_pos_filter(token: AccessToken | None) -> models.Filter | None:
-    """Return a Qdrant Filter based on user's department and position."""
+def _is_authorized_for_company(token: AccessToken | None, company_id: str) -> bool:
+    if company_id == "0":
+        return True
     if not token or not token.claims:
-        return models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="department_position_pairs",
-                    match=models.MatchAny(any=["0-0"]),
-                )
-            ]
+        return False
+        
+    claims_lower = {k.lower(): v for k, v in token.claims.items()}
+    scopes = token.scopes if token else []
+    roles = token.claims.get("realm_access", {}).get("roles", [])
+    if "admin" in scopes or "Admin" in scopes or "admin" in roles or "Admin" in roles:
+        return True
+        
+    allowed_companies = claims_lower.get("companies", [])
+    if isinstance(allowed_companies, str):
+        try:
+            import json
+            allowed_companies = json.loads(allowed_companies)
+        except:
+            allowed_companies = [c.strip() for c in allowed_companies.split(",")]
+            
+    return company_id in allowed_companies
+
+def get_dept_pos_filter(token: AccessToken | None, company_id: str) -> models.Filter | None:
+    """Return a Qdrant Filter based on user's department, position, and company."""
+    must_conditions = [
+        models.FieldCondition(
+            key="companies",
+            match=models.MatchAny(any=[company_id, "0"]),
         )
+    ]
+
+    if not token or not token.claims:
+        must_conditions.append(
+            models.FieldCondition(
+                key="department_position_pairs",
+                match=models.MatchAny(any=["0-0"]),
+            )
+        )
+        return models.Filter(must=must_conditions)
     
     claims_lower = {k.lower(): v for k, v in token.claims.items()}
     dept_id = str(claims_lower.get("departmentid", 0))
@@ -109,7 +137,7 @@ def get_dept_pos_filter(token: AccessToken | None) -> models.Filter | None:
     scopes = token.scopes if token else []
     roles = token.claims.get("realm_access", {}).get("roles", [])
     if "admin" in scopes or "Admin" in scopes or "admin" in roles or "Admin" in roles:
-        return None  # Admin can access everything
+        return models.Filter(must=must_conditions)
     
     allowed_pairs = [
         f"{dept_id}-{pos_id}",  # Exact match
@@ -118,28 +146,32 @@ def get_dept_pos_filter(token: AccessToken | None) -> models.Filter | None:
         "0-0"                   # Public documents
     ]
     
-    return models.Filter(
-        must=[
-            models.FieldCondition(
-                key="department_position_pairs",
-                match=models.MatchAny(any=allowed_pairs),
-            )
-        ]
+    must_conditions.append(
+        models.FieldCondition(
+            key="department_position_pairs",
+            match=models.MatchAny(any=allowed_pairs),
+        )
     )
+    return models.Filter(must=must_conditions)
 
 # ── Tool 1: search ─────────────────────────────────────────────────────────────
 
 @mcp.tool
-async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: int = TOP_K_DEFAULT) -> dict:
+async def search(query: str, company_id: str, token: AccessToken = CurrentAccessToken(), top_k: int = TOP_K_DEFAULT) -> dict:
     """
     Hybrid search across the knowledge base (semantic + keyword).
+    CRITICAL: You MUST provide a company_id. If the user hasn't told you which 
+    company they want to search in, STOP and ask them "Which company would you like to search?"
     Returns a list of point IDs ranked by relevance.
     Use `fetch` to get the content for each ID.
 
     Args:
         query:  Natural language search query.
+        company_id: The company ID to restrict the search to.
         top_k:  Number of results (default 5, max 20).
     """
+    if not _is_authorized_for_company(token, company_id):
+        return {"error": f"Unauthorized. You do not have access to company '{company_id}'."}
     import sys, json
     print("\n" + "=" * 60)
     print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render)")
@@ -171,7 +203,7 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
     print("\n" + "=" * 60)
     print("Step 5: Database Query (MCP Server ↔ Qdrant Cloud) [Search]")
     print("Action: The MCP server translates ChatGPT's text query into vector embeddings and queries Qdrant.")
-    filter_obj = get_dept_pos_filter(token)
+    filter_obj = get_dept_pos_filter(token, company_id)
     print(f"Data Passed (RBAC Filter): {filter_obj.must if filter_obj else 'None'}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
@@ -197,7 +229,7 @@ async def search(query: str, token: AccessToken = CurrentAccessToken(), top_k: i
         ],
         # Qdrant's built-in RRF fusion across both prefetch results
         query=models.FusionQuery(fusion=models.Fusion.RRF),
-        query_filter=get_dept_pos_filter(token),
+        query_filter=get_dept_pos_filter(token, company_id),
         limit=top_k,
         with_payload=True,
     )
@@ -267,6 +299,7 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     
     # Enforce RBAC
     doc_pairs = payload.get("department_position_pairs", ["0-0"])
+    doc_companies = payload.get("companies", ["0"])
     
     if not token or not token.claims:
         dept_id = "0"
@@ -277,7 +310,7 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
         claims_lower = {k.lower(): v for k, v in token.claims.items()}
         dept_id = str(claims_lower.get("departmentid", 0))
         pos_id = str(claims_lower.get("positionid", 0))
-        scopes = token.scopes
+        scopes = token.scopes if token else []
         roles = token.claims.get("realm_access", {}).get("roles", [])
         
     allowed_pairs = [
@@ -288,6 +321,11 @@ async def fetch(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     ]
     
     is_admin = "admin" in scopes or "Admin" in scopes or "admin" in roles or "Admin" in roles
+    
+    has_company_access = any(_is_authorized_for_company(token, c) for c in doc_companies)
+    if not is_admin and not has_company_access:
+        return {"error": f"Unauthorized. Point belongs to companies: {doc_companies}."}
+        
     has_access = any(pair in doc_pairs for pair in allowed_pairs)
     
     if not is_admin and not has_access:
@@ -332,11 +370,15 @@ handler.setLevel(logging.INFO)
 logger.addHandler(handler)
 
 @mcp.tool
-async def list_documents(token: AccessToken = CurrentAccessToken()) -> dict:
+async def list_documents(company_id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     """
     List all documents in the Qdrant knowledge base.
+    CRITICAL: You MUST provide a company_id. If the user hasn't told you which 
+    company they want to list documents for, STOP and ask them "Which company would you like to list documents for?"
     Only returns documents the user is authorized to see based on their Keycloak claims.
     """
+    if not _is_authorized_for_company(token, company_id):
+        return {"error": f"Unauthorized. You do not have access to company '{company_id}'."}
     if token:
         try:
             import urllib.request
@@ -362,7 +404,7 @@ async def list_documents(token: AccessToken = CurrentAccessToken()) -> dict:
         except Exception as e:
             logger.error(f"Failed to fetch userinfo: {e}")
             
-    f = get_dept_pos_filter(token)
+    f = get_dept_pos_filter(token, company_id)
     
     seen: dict[str, dict] = {}
     offset = None
@@ -405,14 +447,19 @@ async def list_documents(token: AccessToken = CurrentAccessToken()) -> dict:
 # ── Tool 4: get_document ──────────────────────────────────────────────────────
 
 @mcp.tool
-async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> dict:
+async def get_document(id: str, company_id: str, token: AccessToken = CurrentAccessToken()) -> dict:
     """
     Retrieve the full reassembled text of a document by its document_id.
+    CRITICAL: You MUST provide a company_id. If the user hasn't told you which 
+    company they want to interact with, STOP and ask them "Which company?"
     Use `list_documents` to get valid document IDs.
 
     Args:
         id: The document_id (UUID from `list_documents`).
+        company_id: The company ID context.
     """
+    if not _is_authorized_for_company(token, company_id):
+        return {"error": f"Unauthorized. You do not have access to company '{company_id}'."}
     import sys, json
     print("\n" + "=" * 60)
     print("Step 3: Tool Execution (ChatGPT ↔ MCP Server on Render) [Get Document]")
@@ -437,7 +484,7 @@ async def get_document(id: str, token: AccessToken = CurrentAccessToken()) -> di
     all_chunks = []
     offset = None
     
-    role_filter = get_dept_pos_filter(token)
+    role_filter = get_dept_pos_filter(token, company_id)
     must_conditions = [
         models.FieldCondition(
             key="document_id",

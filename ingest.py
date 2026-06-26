@@ -66,6 +66,23 @@ def ensure_collection():
             )
         },
     )
+    
+    print("Creating payload indices...")
+    client.create_payload_index(
+        collection_name=COLLECTION,
+        field_name="department_position_pairs",
+        field_schema=models.PayloadSchemaType.KEYWORD,
+    )
+    client.create_payload_index(
+        collection_name=COLLECTION,
+        field_name="document_id",
+        field_schema=models.PayloadSchemaType.KEYWORD,
+    )
+    client.create_payload_index(
+        collection_name=COLLECTION,
+        field_name="companies",
+        field_schema=models.PayloadSchemaType.KEYWORD,
+    )
     print("Collection created.")
 
 # ── Text extraction ───────────────────────────────────────────────────────────
@@ -107,7 +124,7 @@ def chunk_text(text: str) -> list[str]:
 
 # ── Ingest ────────────────────────────────────────────────────────────────────
 
-def cmd_ingest(file_path_str: str, dept: str = "0", pos: str = "0"):
+def cmd_ingest(file_path_str: str, dept: str = "0", pos: str = "0", company: str = "0"):
     file_path = Path(file_path_str)
     if not file_path.exists():
         print(f"Error: file not found: {file_path}")
@@ -132,6 +149,7 @@ def cmd_ingest(file_path_str: str, dept: str = "0", pos: str = "0"):
     # Shared document_id groups all chunks from this file together
     document_id = str(uuid.uuid4())
     title = file_path.stem.replace("_", " ").replace("-", " ").title()
+    companies = [c.strip() for c in company.split(",")] if company else ["0"]
 
     print("  Generating embeddings...")
     dense_vecs  = list(dense_model.embed(chunks))
@@ -156,6 +174,7 @@ def cmd_ingest(file_path_str: str, dept: str = "0", pos: str = "0"):
                 "file_type":   file_path.suffix.lstrip("."),
                 "content":     chunks[i],
                 "department_position_pairs": [f"{dept}-{pos}"],
+                "companies":   companies,
             },
         )
         for i in range(len(chunks))
@@ -239,13 +258,14 @@ if __name__ == "__main__":
     group.add_argument("--file",   type=str, help="Path to file to ingest")
     parser.add_argument("--dept",  type=str, default="0", help="Department ID required to access this document")
     parser.add_argument("--pos",   type=str, default="0", help="Position ID required to access this document")
+    parser.add_argument("--company", type=str, default="0", help="Comma-separated list of companies for this document (e.g. 'CompanyA,CompanyB')")
     group.add_argument("--list",   action="store_true", help="List all documents")
     group.add_argument("--delete", type=str, metavar="DOCUMENT_ID", help="Delete by document ID")
 
     args = parser.parse_args()
 
     if args.file:
-        cmd_ingest(args.file, args.dept, args.pos)
+        cmd_ingest(args.file, args.dept, args.pos, args.company)
     elif args.list:
         cmd_list()
     elif args.delete:
