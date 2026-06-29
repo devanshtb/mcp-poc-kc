@@ -78,8 +78,9 @@ KEYCLOAK_CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID")
 if KEYCLOAK_REALM_URL and KEYCLOAK_CLIENT_ID:
     auth = KeycloakAuthProvider(
         realm_url=KEYCLOAK_REALM_URL,
-        base_url=BASE_URL,
-        audience=KEYCLOAK_CLIENT_ID
+        base_url=BASE_URL
+        # PROOF TEST: Temporarily ignoring audience validation to prove the mapper is missing!
+        # audience=KEYCLOAK_CLIENT_ID
     )
     print("Keycloak provider configured.")
 else:
