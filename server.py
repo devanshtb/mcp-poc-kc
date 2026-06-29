@@ -91,18 +91,27 @@ mcp = FastMCP("Knowledge Base", lifespan=lifespan, auth=auth)
 # ── RBAC Utility ─────────────────────────────────────────────────────────────
 
 def _is_authorized_for_company(token: AccessToken | None, company_id: str) -> bool:
+    import sys
     if company_id == "0":
         return True
     if not token or not token.claims:
         return False
         
     claims_lower = {k.lower(): v for k, v in token.claims.items()}
+    
+    print(f"\n[DEBUG RBAC] Requested company_id: '{company_id}'")
+    print(f"[DEBUG RBAC] Token claims: {token.claims}")
+    
     scopes = token.scopes if token else []
     roles = token.claims.get("realm_access", {}).get("roles", [])
     if "admin" in scopes or "Admin" in scopes or "admin" in roles or "Admin" in roles:
+        print("[DEBUG RBAC] User is admin. Access granted.")
+        sys.stdout.flush()
         return True
         
     allowed_companies = claims_lower.get("companies", claims_lower.get("companyid", []))
+    print(f"[DEBUG RBAC] Raw allowed_companies from token: {allowed_companies}")
+    
     if isinstance(allowed_companies, str):
         try:
             import json
@@ -110,6 +119,8 @@ def _is_authorized_for_company(token: AccessToken | None, company_id: str) -> bo
         except:
             allowed_companies = [c.strip() for c in allowed_companies.split(",")]
             
+    print(f"[DEBUG RBAC] Parsed allowed_companies: {allowed_companies}")
+    sys.stdout.flush()
     return company_id in allowed_companies
 
 def get_dept_pos_filter(token: AccessToken | None, company_id: str) -> models.Filter | None:
