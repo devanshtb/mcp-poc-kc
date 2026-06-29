@@ -102,7 +102,7 @@ def _is_authorized_for_company(token: AccessToken | None, company_id: str) -> bo
     if "admin" in scopes or "Admin" in scopes or "admin" in roles or "Admin" in roles:
         return True
         
-    allowed_companies = claims_lower.get("companies", [])
+    allowed_companies = claims_lower.get("companies", claims_lower.get("companyid", []))
     if isinstance(allowed_companies, str):
         try:
             import json
